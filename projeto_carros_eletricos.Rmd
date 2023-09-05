@@ -1,0 +1,586 @@
+---
+title: "Data Science Academy - Projeto com Feedback"
+author: "Roberto Rosário Balbinotti"
+date: "05/09/2023"
+output:
+  html_document:
+    highlight: textmate
+    theme: flatly
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: no
+---
+
+<br>
+
+
+
+
+
+
+
+
+
+
+</br>
+
+# Machine Learning em Logística
+
+> Prevendo o Consumo de Energia de Carros Elétricos.\
+> **Curso - Big Data Analytics com R e Microsoft Azure Machine Learning - Versão 3.0**
+
+## Descrição Projeto
+
+Uma empresa da área de transporte e logística deseja migrar sua frota para carros elétricos com o objetivo de reduzir os custos.
+
+Antes de tomar a decisão, a empresa gostaria de **prever o consumo de energia de carros elétricos** com base em diversos fatores de utilização e características dos veículos.
+
+Usando um incrível dataset com dados reais disponíveis publicamente, você deverá construir um modelo de Machine Learning capaz de prever o consumo de energia de carros elétricos com base em diversos fatores, tais como o tipo e número de motores elétricos do veículo, o peso do veículo, a capacidade de carga, entre outros atributos.
+
+Para a construção desse projeto, recomendamos a utilização da linguagem R e o dataset disponível para download no [link](https://data.mendeley.com/datasets/tb9yrptydn/2)
+
+Este conjunto de dados lista todos os carros totalmente elétricos com seus atributos (propriedades) disponíveis atualmente no mercado. A coleção não contém dados sobre carros híbridos e carros elétricos dos chamados "extensores de alcance". Os carros a hidrogênio também não foram incluídos no conjunto de dados devido ao número insuficiente de modelos produzidos em massa e à especificidade diferente (em comparação com veículo elétrico) do veículo, incluindo os diferentes métodos de carregamento.
+
+O conjunto de dados inclui carros que, a partir de 2 de dezembro de 2020, poderiam ser adquiridos na Polônia como novos em um revendedor autorizado e aqueles disponíveis em pré-venda pública e geral, mas apenas se uma lista de preços publicamente disponível com versões de equipamentos e parâmetros técnicos completos estivesse disponível. A lista não inclui carros descontinuados que não podem ser adquiridos como novos de um revendedor autorizado (também quando não estão disponíveis em estoque).
+
+O conjunto de dados de carros elétricos inclui todos os carros totalmente elétricos no mercado primário que foram obtidos de materiais oficiais (especificações técnicas e catálogos) fornecidos por fabricantes de automóveis com licença para vender carros na Polônia.
+
+Esses materiais foram baixados de seus sites oficiais. Caso os dados fornecidos pelo fabricante estivessem incompletos, as informações eram complementadas com dados do AutoCatálogo SAMAR (link disponível na seção Referências da fonte de dados).
+
+Seu trabalho é ***construir um modelo de Machine Learning capaz de prever o consumo de energia de veículos elétricos***.
+
+------------------------------------------------------------------------
+
+## Fonte Dados
+
+-   Hadasik, Bartłomiej; Kubiczek, Jakub (2021), "Dataset of electric passenger cars with their specifications", Mendeley Data, V2, doi: 10.17632/tb9yrptydn.2
+-   [Mendeley](https://data.mendeley.com/datasets/tb9yrptydn/2)
+-   [Data Science Academy](https://www.datascienceacademy.com.br)
+
+## Objetivo
+
+> Construir um modelo de Machine Learning capaz de **prever o consumo de energia** de veículos elétricos.\
+> Variável preditora: Média de consumo
+
+------------------------------------------------------------------------
+
+## Bibliotecas
+
+```{r packages, message=FALSE, warning=FALSE}
+require(naniar)
+require(tidyverse)
+require(visdat)
+require(C50)
+library(caret)
+require(ggcorrplot)
+require(randomForest)
+require(kableExtra)
+require(htmltools)
+require(knitr)
+```
+
+```{r load, include=FALSE}
+setwd("/home/rb/Documents/Learn/DSA/FDS/Cap01-BigDataAnalyticsR_Azure/mod_20-Projeto_com_Feedback")
+dados <- readxl::read_excel('FEV-data-Excel.xlsx')
+nomesCol <- c(
+  'Nome', 'Marca', 'Modelo', 'Preço_min', 'Potência', 'Torque_Nm', 'Tipo_freios',
+  'Tração', 'Capacidade_bateria_kWh', 'Autonomia', 'Dist_eixos_cm', 'Comp_cm',
+  'Larg_cm', 'Alt_cm', 'Peso_min_kg', 'Peso_max_kg', 'Carga_max_kg', 'Lugares',
+  'Qtde_portas', 'Tam_pneus_pol', 'Vel_max_kph', 'Porta_malas_lt', 'Acel_0_100kph_s',
+  'Carga_bat_max_kW', 'Media_cons_kWh_100km'
+)
+colnames(dados) <- nomesCol
+```
+
+```{r}
+glimpse(dados)
+```
+
+------------------------------------------------------------------------
+
+# Exploração dados
+
+```{r Vis_dados}
+vis_dat(dados)
+```
+
+```{r vis_dados_miss}
+vis_miss(dados, sort_miss = TRUE)
+```
+
+```{r}
+dados_inc <- dados[!complete.cases(dados), ]
+rmarkdown::paged_table(dados_inc[, c('Nome', 'Media_cons_kWh_100km', 'Peso_max_kg', 'Carga_max_kg', 'Acel_0_100kph_s', 'Tipo_freios', 'Porta_malas_lt')])
+```
+
+## Conclusão Exploração
+
+<br></br> É possível observar a concentração de missing na região do index 40, estes são da marca Tesla, devido a representatividade da marca no setor, vou buscar informações sobre os dados faltantes.\
+Por se tratar de um tamanho diminuto do dataset vou tentar encontrar, os dados das outras marcas. Caso não tenha procedência ou não encontre irei simplesmente omitir a observação.
+
+------------------------------------------------------------------------
+
+# Tratamento dos dados
+
+*Peso_max-kg* e *Carga_max-kg*, vamos considerar o peso mínimo, pois não há informação referente a peso do carro quando calculado o consumo.\
+Com relação ao Nome e Marca não serão utilizadas no modelo (é irrelevante para a análise).
+
+-   Tipo_freios, Mercedes-Benz EQV (long) tem freios a disco nas quatro rodas. [^1]
+
+[^1]: Fonte: Bard Google baseado no site da Mercedes_Benz.
+
+```{r}
+dados$Tipo_freios <- replace_na(dados$Tipo_freios, 'disc (front + rear)')
+```
+
+## Aceleração
+
+-   Peugeot e-2008 é de 8,4 segundos. [^2]
+
+-   Mercedes-Benz EQV (long) tem uma aceleração de 0 a 100 km/h em 9 segundos.¹
+
+-   Nissan e-NV200 Evalia é de 14,0 segundos. [^3]
+
+[^2]: Fonte: Bard Google baseado no site da Peugeot
+
+[^3]: Fonte: Bard Google baseado no site da Nissan
+
+```{r}
+list_carros_acel <- dados[!complete.cases(dados$Acel_0_100kph_s), ] %>%
+  select(c('Nome'))
+```
+
+## Consumo médio kWh/100km
+
+-   Citroën ë-C4: 16 kWh/100km. [^4]
+
+-   Peugeot e-2008: 15.5 kWh/100km.⁴
+
+-   Tesla Model 3 Standard Range Plus: 16 kWh/100km. [^5]
+
+-   Tesla Model 3 Long Range: 15.2 kWh/100km.⁵
+
+-   Tesla Model 3 Performance: 16.6 kWh/100km.⁵
+
+-   Tesla Model S Long Range Plus: 19 kWh/100km.⁵
+
+-   Tesla Model S Performance: 20 kWh/100km.⁵
+
+-   Tesla Model X Long Range Plus: 22.6 kWh/100km.⁵
+
+-   Tesla Model X Performance: 23.6 kWh/100km.⁵
+
+[^4]: Fonte: Bard Google baseado no site da European Union Energy Label
+
+[^5]: Fonte: Bard Google baseado no site da Tesla
+
+```{r}
+list_carros_cons <- dados[!complete.cases(dados$Media_cons_kWh_100km), ] %>%
+  select(c('Nome'))
+```
+
+```{r}
+dados_missing_cons <- tibble(Media_cons_kWh_100km = c(16, 15.5, 16, 15.2, 16.6, 19, 20, 22.6, 23.6), list_carros_cons)
+
+kable(dados_missing_cons) %>% 
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r}
+dados_missing_acel <- tibble(Acel_0_100kph_s = c(8.4, 9, 14), list_carros_acel)
+kable(dados_missing_acel) %>% 
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+> Tratamento Aceleração
+
+```{r}
+dados <- dados %>%
+  filter(is.na(Acel_0_100kph_s)) %>%
+  select(-Acel_0_100kph_s) %>%
+  left_join(dados_missing_acel, by = "Nome") %>%
+  bind_rows(dados %>% filter(!is.na(Acel_0_100kph_s)))
+
+```
+
+> Tratamento Consumo
+
+```{r}
+dados <- dados %>%
+  filter(is.na(Media_cons_kWh_100km)) %>%
+  select(-Media_cons_kWh_100km) %>%
+  left_join(dados_missing_cons, by = "Nome") %>%
+  bind_rows(dados %>% filter(!is.na(Media_cons_kWh_100km)))
+```
+
+Vou omitir as colunas **Peso_max, carga_max, porta_malas**.\
+Possuem valores missing, variáveis não devem influenciar no consumo, visto que não temos informação das condições de realização das observações, se com carga ou não, porta malas já está incluído no peso minimo.
+
+```{r vis_dados_miss_varsel}
+dados_v1 <- dados %>%
+  select(!c('Nome', 'Marca', "Modelo", "Peso_max_kg", "Carga_max_kg", 'Porta_malas_lt'))
+
+vis_miss(dados_v1, sort_miss = TRUE)
+```
+
+```{r}
+rmarkdown::paged_table(dados_v1)
+```
+
+------------------------------------------------------------------------
+
+# Tratando Types
+
+```{r}
+vis_dat(dados_v1)
+```
+
+Encoding
+
+```{r}
+dados_v2 <- dados_v1 %>%
+  mutate(Tipo_freios_enc = if_else(dados_v1$Tipo_freios == "disc (front + rear)", 1, 2)) %>%
+  mutate(Tração_enc = if_else(dados_v1$Tração == '2WD (front)', 1, if_else(dados_v1$Tração == "4WD", 3, 2)))
+
+vis_miss(dados_v2)
+df <- dados_v2
+```
+
+------------------------------------------------------------------------
+
+# Visualização do DF
+
+## Correlação
+
+```{r corr}
+tab_cor <- cor(df %>% select_if(is.numeric))
+ggcorrplot(tab_cor, type = 'lower', lab = TRUE, lab_size = 1.6)
+```
+
+Para evitar overfitting, retirar variáveis preditoras com correlação \> 0.80
+
+```{r pairs}
+df_select <- df %>% 
+  select(!c('Preço_min', 'Potência', 'Comp_cm', 'Peso_min_kg', 'Torque_Nm', 'Capacidade_bateria_kWh', 'Vel_max_kph', 'Tipo_freios', 'Tração', 'Tam_pneus_pol'))
+psych::pairs.panels(df_select, main = 'Correlação entre variáveis preditoras')
+```
+
+------------------------------------------------------------------------
+
+# Seleção de variáveis lineares
+
+```{r}
+par(mfrow = c(2,2))
+df_select_numeric <- df_select %>%
+select_if(is.numeric)
+
+names(df_select_numeric)
+```
+
+> Variável dependente: Media_cons_kWh_100km\
+> H0: Não há relação linear entre variáveis dependente e independentes.\
+> H1: Há relação linear entre variáveis dependente e independentes.
+
+```{r}
+lm_mod <- lm(Media_cons_kWh_100km ~ . , df_select_numeric)
+plot(lm_mod, main = 'lm_mod')
+```
+
+```{r}
+summary(lm_mod)
+```
+
+Nas variáveis com **valor p \> 0.05** falhamos em rejeitar H0, sendo para este conjunto de dados, há evidências significativas de **não haver relação de linearidade** entre as variáveis.('Larg_cm', 'Lugares', 'Acel_0\_100kph_s', 'Tipo_freios_enc')
+
+## Aprofundando um pouco a análise
+
+> Todas variáveis menos Larg_cm
+
+```{r}
+lm_mod2 <- lm(Media_cons_kWh_100km ~ .
+              - Larg_cm
+              , df_select_numeric )
+summary(lm_mod2)
+```
+
+------------------------------------------------------------------------
+
+> Todas variáveis menos Larg_cm e Lugares
+
+```{r}
+lm_mod3 <- lm(Media_cons_kWh_100km ~ .
+              - Larg_cm
+              - Lugares,
+              df_select_numeric )
+summary(lm_mod3)
+```
+
+------------------------------------------------------------------------
+
+> Todas variáveis menos Larg_cm, Lugares e Tipo_freios_enc
+
+```{r}
+lm_mod4 <- lm(Media_cons_kWh_100km ~ .
+              - Larg_cm
+              - Lugares
+              - Tipo_freios_enc,
+              df_select_numeric )
+summary(lm_mod4)
+```
+
+------------------------------------------------------------------------
+
+> Todas variáveis menos Larg_cm, Lugares, Tipo_freios_enc e Acel_0\_100kph_s
+
+```{r}
+lm_mod5 <- lm(Media_cons_kWh_100km ~ .
+              - Larg_cm
+              - Lugares
+              - Tipo_freios_enc
+              - Acel_0_100kph_s,
+              df_select_numeric )
+summary(lm_mod5)
+```
+
+------------------------------------------------------------------------
+
+> Verificar se há significância com dados normalizados
+
+```{r dados_norm}
+df_norm <- as_tibble(scale(df_select_numeric))
+lm_mod6 <- lm(Media_cons_kWh_100km ~ .,
+              df_norm)
+summary(lm_mod6)
+```
+
+------------------------------------------------------------------------
+
+> Normalidade dos Resíduos
+
+**Teste Shapiro** \> H0: distribuição normal dos dados =\> p \> 0,05\
+\> H1: distribuição não é normal =\> p \<= 0,05
+
+```{r shapiro}
+shapiro.test(lm_mod4$residuals)
+```
+
+Conforme o teste, valor p \> 0,05 não rejeitamos H0, sendo os **resíduos apresentam distribuição normal**.
+
+------------------------------------------------------------------------
+
+> Outliers Resíduos
+
+```{r summ_rstandard}
+summary(rstandard(lm_mod4))
+```
+
+Valor min acima de -3 e max abaixo de 3, não apresentam outliers mediana tendendo a zero indicando normalidade dos dados.
+
+## Conclusão da Análise
+
+Modelo **lm_mod4** apresenta um R² de 0,8113 e RSE de 1,969, sendo variáveis selecionadas explicam aproximadamente 81% da variância da variável **Media_cons_kWh_100km** com erro médio quadrático de aproximadamente 1.97. Sendo estas variáveis serão as definidas para construção do modelo de previsão.
+
+------------------------------------------------------------------------
+
+# Escolha das variáveis preditoras
+
+```{r}
+vetor_var <- c('Autonomia', 'Dist_eixos_cm', 'Alt_cm', 'Qtde_portas', 'Carga_bat_max_kW', 'Tração_enc', 'Acel_0_100kph_s', 'Media_cons_kWh_100km')
+
+df_var_sign <- df[ , vetor_var]
+str(df_var_sign)
+```
+
+------------------------------------------------------------------------
+
+# Train/Test
+
+Vou utilizar 85% para treino, devido só haverem `r length(df_var_sign$Media_cons_kWh_100km)` observações.
+
+```{r}
+set.seed(7)
+linhas <- sample(1:nrow(df_var_sign), 0.85 * nrow(df_var_sign))
+
+dados_treino <- df_var_sign[linhas,]
+dados_teste <- df_var_sign[-linhas,]
+```
+
+------------------------------------------------------------------------
+
+# Modelos
+
+## Regressão linear
+
+```{r mod_reg_l}
+mod_reg_l <- lm(Media_cons_kWh_100km ~ . , dados_treino)
+summary(mod_reg_l)
+```
+
+```{r mod_reg_l2}
+mod_reg_l2 <- lm(Media_cons_kWh_100km ~ .
+                 - Dist_eixos_cm,
+                 dados_treino)
+summary(mod_reg_l2)
+```
+
+```{r mod_reg_l3}
+mod_reg_l3 <- lm(Media_cons_kWh_100km ~ .
+                 - Dist_eixos_cm
+                 - Qtde_portas,
+                 dados_treino)
+summary(mod_reg_l3)
+```
+
+```{r mod_reg_l4}
+mod_reg_l4 <- lm(Media_cons_kWh_100km ~  
+                 + Autonomia
+                 + Carga_bat_max_kW
+                 + Tração_enc,
+                 dados_treino)
+summary(mod_reg_l4)
+```
+
+```{r mod_reg_l5}
+mod_reg_l5 <- lm(Media_cons_kWh_100km ~ . 
+                 - Alt_cm,
+                 dados_treino)
+summary(mod_reg_l5)
+```
+
+```{r mod_reg_l6}
+mod_reg_l6 <- lm(Media_cons_kWh_100km ~ . 
+                 - Alt_cm
+                 - Qtde_portas
+                 - Carga_bat_max_kW,
+                 dados_treino)
+summary(mod_reg_l6)
+```
+
+```{r mod_reg_l7}
+mod_reg_l7 <- lm(Media_cons_kWh_100km ~ . 
+                 - Alt_cm
+                 - Qtde_portas
+                 - Carga_bat_max_kW
+                 - Acel_0_100kph_s,
+                 dados_treino)
+summary(mod_reg_l7)
+```
+
+> Modelo Escolhido ***mod_reg_l***: Apresenta menor RSE e maior R-square
+
+```{r summary model}
+summary(mod_reg_l)
+```
+
+-   Vou manter todas as variável preditoras, apresentou menor erro e maior R-square
+
+## Distribuição dos resíduos
+
+```{r dist_resid}
+par(mfrow = c(2,2))
+plot(mod_reg_l)
+```
+
+```{r plot_residuos}
+plot(rstudent(mod_reg_l) ~ fitted(mod_reg_l), pch = 19, main = 'Dist.
+Resíduos')
+abline(h = 0, lty = 2, col = 'red')
+```
+
+-   Parece haver alatoriedade na distribuição dos resíduos
+
+## Normalidade dos resíduos
+
+```{r normalidade}
+hist(x = mod_reg_l$residuals, col = 'gray', xlab = 'Resíduos', ylab =
+'Densidade de Probabilidade',
+         probability = TRUE, main = 'Histograma Resíduos')
+lines(density(mod_reg_l$residuals))
+```
+
+-   Desenho da Distribuição tem aparencia de uma curva normal.
+
+***Shapiro-Test***\
+H0 - Apresenta dist. Normal\
+H1 - Não Apresenta dist. normal
+
+```{r shapiro-modelo}
+shapiro.test(mod_reg_l$residuals)
+```
+
+> p \> 0.05 há evidências significativas de possuir distribuição normal
+
+------------------------------------------------------------------------
+
+## Random Forest
+
+```{r RandomForest}
+mod_rf <- randomForest(Media_cons_kWh_100km ~ . , 
+                       data = dados_treino, 
+                       ntree = 100, 
+                       nodesize = 10,
+                       importance = FALSE)
+
+print(mod_rf)
+```
+
+```{r RandomForest-2}
+mod_rf2 <- randomForest(Media_cons_kWh_100km ~ . , 
+                       data = dados_treino, 
+                       ntree = 100, 
+                       nodesize = 8,
+                       importance = FALSE)
+print(mod_rf2)
+```
+
+```{r RandomForest-3}
+mod_rf3 <- randomForest(Media_cons_kWh_100km ~ . , 
+                        data = dados_treino, 
+                        ntree = 100, 
+                        nodesize = 12,
+                        importance = FALSE)
+print(mod_rf3)
+```
+
+> Resultados muito próximos entre a regressão linear e a Random Forest, vou optar pela regressão para previsão.
+
+------------------------------------------------------------------------
+
+# Previsão
+
+```{r previsao}
+previsao <- predict(mod_reg_l, dados_teste)
+print(previsao)
+```
+
+```{r df_prev}
+df_regLinear <- tibble(Observado = dados_teste$Media_cons_kWh_100km,
+                                         Previsto = predict(mod_reg_l, newdata = dados_teste))
+
+df_regLinear <- df_regLinear %>%
+   mutate(Resíduos = Observado - Previsto)
+
+kable(df_regLinear) %>% 
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+> Valor médio absoluto dos resíduos: ***`r mean(abs(df_regLinear$Resíduos))`***
+
+------------------------------------------------------------------------
+
+# Bibliografia e Créditos
+
+## Material de Apoio
+
+-   Visualização dos tipos de "highlights": [Por Eran Aviv](https://eranraviv.com/syntax-highlighting-style-in-rmarkdown/)\
+-   Visualização das opções de temas: [Por Andrew Zieffler](https://www.datadreaming.org/post/r-markdown-theme-gallery/)\
+-   Dicas para personalização de tabelas pelo pacote `kableExtra`: [Por Hao Zhu](https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html#html_only_features)\
+-   Livro **completo** sobre RMarkdown: [R Markdown Cookbook](https://bookdown.org/yihui/rmarkdown-cookbook/)\
+-   Fernanda Peres: [Youtube](https://youtube.com/c/FernandaPeres)
+
+## Créditos
+
+Material criado por **Roberto R Balbinotti**.\
+Projeto de Conclusão do Curso - Big Data Analytics com R e Microsoft Azure Machine Learning da [Data Science Academy](https://www.datascienceacademy.com.br/)
