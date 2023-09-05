@@ -36,8 +36,7 @@ Seu trabalho é ***construir um modelo de Machine Learning capaz de prever o con
 ## Objetivo
 > Construir um modelo de Machine Learning capaz de **prever o consumo de energia** de veículos elétricos.\
 
-## Vizualização projeto em html
-- [Projeto visualização html](projeto_carros_eletricos.html)
+## Vizualização projeto
 - [Projeto em R](Projeto_Feedback_1.R)
 
 # Bibliografia e Créditos
