@@ -3,7 +3,7 @@
 
 > Prevendo o Consumo de Energia de Carros Elétricos.  
 > **Curso - Big Data Analytics com R e Microsoft Azure Machine Learning - Versão 3.0**
-> [Data Science Academy](https://www.datascienceacademy.com.br/)
+> Projeto da Formação Cientista de Dados da [Data Science Academy](https://www.datascienceacademy.com.br/)
 
 ## Descrição Projeto
 
